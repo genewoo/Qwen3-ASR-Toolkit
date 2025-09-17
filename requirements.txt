@@ -1,0 +1,8 @@
+dashscope
+librosa
+pydub
+silero_vad
+soundfile
+tqdm
+setuptools
+wheel

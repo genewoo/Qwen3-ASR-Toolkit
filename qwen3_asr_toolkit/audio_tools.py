@@ -13,33 +13,40 @@ WAV_SAMPLE_RATE = 16000
 
 def load_audio(file_path: str) -> np.ndarray:
     try:
-        wav_data, _ = librosa.load(file_path, sr=WAV_SAMPLE_RATE)
+        if file_path.startswith(("http://", "https://")):
+            raise ValueError("Using ffmpeg to load remote file.")
+        # Try librosa first, because it is usually faster for standard formats.
+        wav_data, _ = librosa.load(file_path, sr=WAV_SAMPLE_RATE, mono=True)
+        return wav_data
     except Exception as e:
-        # Use ffmpeg instead
-        print(f"Failed to load audio from {file_path} using librosa. Trying with ffmpeg...")
-        command = [
-            'ffmpeg',
-            '-i', file_path,
-            '-ar', str(WAV_SAMPLE_RATE),
-            '-ac', '1',
-            '-c:a', 'pcm_s16le',
-            '-f', 'wav',
-            '-'
-        ]
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        stdout_data, stderr_data = process.communicate()
-        if process.returncode != 0:
-            raise RuntimeError(f"FFmpeg error: {stderr_data.decode('utf-8')}")
+        print(e)
+        # After librosa fails, use a more powerful ffmpeg as a backup.
+        try:
+            command = [
+                'ffmpeg',
+                '-i', file_path,
+                '-ar', str(WAV_SAMPLE_RATE),
+                '-ac', '1',
+                '-c:a', 'pcm_s16le',
+                '-f', 'wav',
+                '-'
+            ]
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout_data, stderr_data = process.communicate()
 
-        with io.BytesIO(stdout_data) as data_io:
-            wav_data, sr = sf.read(data_io, dtype='float32')
+            if process.returncode != 0:
+                raise RuntimeError(f"FFmpeg error processing local file: {stderr_data.decode('utf-8', errors='ignore')}")
 
-    return wav_data
+            with io.BytesIO(stdout_data) as data_io:
+                wav_data, sr = sf.read(data_io, dtype='float32')
+
+            return wav_data
+        except Exception as ffmpeg_e:
+            raise RuntimeError(f"Failed to load audio from local file '{file_path}' even with ffmpeg. Error: {ffmpeg_e}")
 
 
 def process_vad(wav: np.ndarray, worker_vad_model, segment_threshold_s: int = 120, max_segment_threshold_s: int = 180) -> list[np.ndarray]:

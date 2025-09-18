@@ -11,10 +11,77 @@ API_RETRY_SLEEP = (1, 2)
 
 
 class QwenASR:
-    def __init__(self, model="qwen3-asr-flash"):
+    def __init__(self, model: str = "qwen3-asr-flash"):
         self.model = model
 
-    def asr(self, wav_url: str, context=""):
+    def post_text_process(self, text, threshold=20):
+        def fix_char_repeats(s, thresh):
+            res = []
+            i = 0
+            n = len(s)
+            while i < n:
+                count = 1
+                while i + count < n and s[i + count] == s[i]:
+                    count += 1
+
+                if count > thresh:
+                    res.append(s[i])
+                    i += count
+                else:
+                    res.append(s[i:i + count])
+                    i += count
+            return ''.join(res)
+
+        def fix_pattern_repeats(s, thresh, max_len=20):
+            n = len(s)
+            min_repeat_chars = thresh * 2
+            if n < min_repeat_chars:
+                return s
+
+            i = 0
+            result = []
+            while i <= n - min_repeat_chars:
+                found = False
+                for k in range(1, max_len + 1):
+                    if i + k * thresh > n:
+                        break
+
+                    pattern = s[i:i + k]
+
+                    valid = True
+                    for rep in range(1, thresh):
+                        start_idx = i + rep * k
+                        if s[start_idx:start_idx + k] != pattern:
+                            valid = False
+                            break
+
+                    if valid:
+                        total_rep = thresh
+                        end_index = i + thresh * k
+                        while end_index + k <= n and s[end_index:end_index + k] == pattern:
+                            total_rep += 1
+                            end_index += k
+
+                        result.append(pattern)
+                        result.append(fix_pattern_repeats(s[end_index:], thresh, max_len))
+                        i = n
+                        found = True
+                        break
+
+                if found:
+                    break
+                else:
+                    result.append(s[i])
+                    i += 1
+
+            if not found:
+                result.append(s[i:])
+            return ''.join(result)
+
+        text = fix_char_repeats(text, threshold)
+        return fix_pattern_repeats(text, threshold)
+
+    def asr(self, wav_url: str, context: str = ""):
         if not wav_url.startswith("http"):
             assert os.path.exists(wav_url), f"{wav_url} not exists!"
             file_path = wav_url
@@ -63,7 +130,7 @@ class QwenASR:
                     print(f'{self.model} finish with error...\n{response}')
                     break
                 recog_text = output["message"]["content"][0]["text"]
-                return recog_text
+                return self.post_text_process(recog_text)
             except Exception as e:
                 print(f"Retry {_ + 1}...  {wav_url}\n{response}")
                 if response.code == "DataInspectionFailed":

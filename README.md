@@ -11,6 +11,7 @@ An advanced, high-performance Python command-line toolkit for using the **Qwen-A
 -   **Break the 3-Minute Limit**: Seamlessly transcribe audio and video files of any length by bypassing the official API's duration constraint.
 -   **Smart Audio Splitting**: Utilizes **Voice Activity Detection (VAD)** to split audio into meaningful chunks at natural silent pauses. This ensures that words and sentences are not awkwardly cut off.
 -   **High-Speed Parallel Processing**: Leverages multi-threading to send audio chunks to the Qwen-ASR API concurrently, dramatically reducing the total transcription time for long files.
+-   **Intelligent Post-Processing**: Automatically detects and removes common ASR **hallucinations and repetitive artifacts** for cleaner, more accurate transcripts.
 -   **Automatic Audio Resampling**: Automatically converts audio from any sample rate and channel count to the 16kHz mono format required by the Qwen-ASR API. You can use any audio file without worrying about pre-processing.
 -   **Universal Media Support**: Supports virtually any audio and video format (e.g., `.mp4`, `.mov`, `.mkv`, `.mp3`, `.wav`, `.m4a`) thanks to its reliance on FFmpeg.
 -   **Simple & Easy to Use**: A straightforward command-line interface allows you to get started with just a single command.
@@ -19,11 +20,12 @@ An advanced, high-performance Python command-line toolkit for using the **Qwen-A
 
 This tool follows a robust pipeline to deliver fast and accurate transcriptions for long-form media:
 
-1.  **Media Loading**: The script first loads your local audio or video file.
+1.  **Media Loading**: The script first loads your media file, whether it's a **local file or a remote URL**.
 2.  **VAD-based Chunking**: It analyzes the audio stream using Voice Activity Detection (VAD) to identify silent segments.
 3.  **Intelligent Splitting**: The audio is then split into smaller chunks based on the detected silences. Each chunk is kept under the 3-minute API limit, preventing mid-sentence cuts.
 4.  **Parallel API Calls**: A thread pool is initiated to upload and process these chunks concurrently using the DashScope Qwen-ASR API.
-5.  **Result Aggregation**: The transcribed text segments from all chunks are collected, re-ordered, and saved.
+5.  **Result Aggregation & Cleaning**: The transcribed text segments from all chunks are collected, re-ordered, and then **post-processed to remove detected repetitions and hallucinations**.
+6.  **Output Generation**: The final, cleaned transcription is printed to the console and saved to a text file.
 
 ## 🏁 Getting Started
 
@@ -86,26 +88,28 @@ If you want to install the latest development version or contribute to the proje
 
 ## 📖 Usage
 
-Once installed, you can use the `qwen3-asr` command directly from your terminal.
+Once installed, you can use the `qwen3-asr` command directly from your terminal. By default, the tool will print progress information.
 
 ### Command
 
 ```bash
-qwen3-asr -i <input_file> [-key <api_key>] [-j <num_threads>] [-v]
+qwen3-asr -i <input_file_or_url> [-key <api_key>] [-j <num_threads>] [-c <context>] [-t <tmp_dir>] [-s]
 ```
 
 ### Arguments
 
-| Argument              | Short  | Description                                                          | Required/Optional                                |
-| --------------------- | ------ | -------------------------------------------------------------------- | ------------------------------------------------ |
-| `--input`             | `-i`   | Path to the local audio or video file you want to transcribe.        | **Required**                                     |
-| `--dashscope-api-key` | `-key` | Your DashScope API Key.                                              | Optional (if `DASHSCOPE_API_KEY` env var is set) |
-| `--num-threads`       | `-j`   | The number of concurrent threads to use for API calls.               | Optional, **Default: 4**                         |
-| `--verbose`           | `-v`   | Verbose mode, print detailed information like chunking and progress. | Optional                                         |
+| Argument              | Short  | Description                                                                          | Required/Optional                        |
+| --------------------- | ------ | ------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `--input-file`        | `-i`   | Path to the local media file or a remote URL (http/https) to transcribe.             | **Required**                             |
+| `--context`           | `-c`   | Text context to guide the ASR model, improving recognition of specific terms.        | Optional, Default: `""`                  |
+| `--dashscope-api-key` | `-key` | Your DashScope API Key.                                                              | Optional (if `DASHSCOPE_API_KEY` is set) |
+| `--num-threads`       | `-j`   | The number of concurrent threads to use for API calls.                               | Optional, **Default: 4**                 |
+| `--tmp-dir`           | `-t`   | Path to a directory for storing temporary chunk files.                               | Optional, Default: `~/qwen3-asr-cache`   |
+| `--silence`           | `-s`   | Silence mode. Suppresses detailed progress and chunking information on the terminal. | Optional                                 |
 
 ### Output
 
-The full transcription result will be printed to the terminal and also saved in a `.txt` file in the same directory as the input file. For example, if you process `my_video.mp4`, the output will be saved to `my_video.txt`.
+The full transcription result will be printed to the terminal (unless in `--silence` mode) and also saved in a `.txt` file in the same directory as the input file. For example, if you process `my_video.mp4`, the output will be saved to `my_video.txt`.
 
 ---
 
@@ -113,28 +117,44 @@ The full transcription result will be printed to the terminal and also saved in 
 
 Here are a few examples of how to use the tool.
 
-#### 1. Basic Transcription
+#### 1. Basic Transcription of a Local File
 
-Transcribe a video file using the default 4 threads. Assuming you have set the `DASHSCOPE_API_KEY` environment variable.
+Transcribe a video file using the default 4 threads. This command assumes you have set the `DASHSCOPE_API_KEY` environment variable.
 
 ```bash
 qwen3-asr -i "/path/to/my/long_lecture.mp4"
 ```
 
-#### 2. Transcribe an Audio File with Increased Concurrency
+#### 2. Transcribe a Remote Audio File
 
-Transcribe a long podcast audio file using 8 parallel threads to speed up the process. This example also shows how to pass the API key directly.
+Directly process an audio file from a URL.
+
+```bash
+qwen3-asr -i "https://somewebsite.com/audios/podcast_episode.mp3"
+```
+
+#### 3. Increase Concurrency and Pass API Key
+
+Transcribe a long audio file using 8 parallel threads and pass the API key directly via the command line.
 
 ```bash
 qwen3-asr -i "/path/to/my/podcast_episode_01.wav" -j 8 -key "your_api_key_here"
 ```
 
-#### 3. Transcription with Verbose Output
+#### 4. Provide Context to Improve Accuracy
 
-Use the `-v` or `--verbose` flag to see detailed logs during the transcription process, such as audio chunking details and API call status. This is useful for debugging or monitoring progress.
+If your audio contains specific jargon, names, or acronyms, use the `-c` flag to provide context, which helps the model recognize them correctly.
 
 ```bash
-qwen3-asr -i "/path/to/my/meeting_recording.m4a" -v
+qwen3-asr -i "/path/to/my/tech_talk.mp4" -c "Qwen-ASR, DashScope, FFmpeg, VAD"
+```
+
+#### 5. Run in Silence Mode
+
+Use the `-s` or `--silence` flag to prevent progress details from being printed to the terminal. The final transcript will still be saved to a `.txt` file.
+
+```bash
+qwen3-asr -i "/path/to/my/meeting_recording.m4a" -s
 ```
 
 ## 🤝 Contributing

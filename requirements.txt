@@ -6,3 +6,5 @@ soundfile
 tqdm
 setuptools
 wheel
+requests
+urllib

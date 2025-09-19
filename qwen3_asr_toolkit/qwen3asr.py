@@ -10,6 +10,21 @@ MAX_API_RETRY = 10
 API_RETRY_SLEEP = (1, 2)
 
 
+language_code_mapping = {
+    "ar": "Arabic",
+    "zh": "Chinese",
+    "en": "English",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "es": "Spanish"
+}
+
+
 class QwenASR:
     def __init__(self, model: str = "qwen3-asr-flash"):
         self.model = model
@@ -123,17 +138,27 @@ class QwenASR:
                         "enable_itn": False
                     }
                 )
+
                 if response.status_code != 200:
                     raise Exception(f"http status_code: {response.status_code} {response}")
                 output = response['output']['choices'][0]
-                if output['finish_reason'] not in ('stop', 'function_call'):
-                    print(f'{self.model} finish with error...\n{response}')
-                    break
-                recog_text = output["message"]["content"][0]["text"]
-                return self.post_text_process(recog_text)
+
+                recog_text = None
+                if len(output["message"]["content"]):
+                    recog_text = output["message"]["content"][0]["text"]
+                if recog_text is None:
+                    recog_text = ""
+
+                lang_code = None
+                if "annotations" in output["message"]:
+                    lang_code = output["message"]["annotations"][0]["language"]
+                language = language_code_mapping.get(lang_code, "Not Supported")
+
+                return language, self.post_text_process(recog_text)
             except Exception as e:
                 print(f"Retry {_ + 1}...  {wav_url}\n{response}")
                 if response.code == "DataInspectionFailed":
+                    print(f"DataInspectionFailed! Invalid input audio \"{wav_url}\"")
                     break
             time.sleep(random.uniform(*API_RETRY_SLEEP))
         raise Exception(f"{wav_url} task failed!\n{response}")

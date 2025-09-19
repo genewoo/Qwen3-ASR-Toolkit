@@ -5,6 +5,7 @@ import dashscope
 import concurrent.futures
 
 from tqdm import tqdm
+from collections import Counter
 from urllib.parse import urlparse
 from silero_vad import load_silero_vad
 from qwen3_asr_toolkit.qwen3asr import QwenASR
@@ -78,6 +79,7 @@ def main():
 
     # Multithread call qwen3-asr-flash api
     results = []
+    languages = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
         future_dict = {
             executor.submit(qwen3asr.asr, wav_path, context): idx
@@ -87,7 +89,9 @@ def main():
             pbar = tqdm(total=len(future_dict), desc="Calling Qwen3-ASR-Flash API")
         for future in concurrent.futures.as_completed(future_dict):
             idx = future_dict[future]
-            results.append((idx, future.result()))
+            language, recog_text = future.result()
+            results.append((idx, recog_text))
+            languages.append(language)
             if not silence:
                 pbar.update(1)
         if not silence:
@@ -96,9 +100,11 @@ def main():
     # Sort and splice in the original order
     results.sort(key=lambda x: x[0])
     full_text = " ".join(text for _, text in results)
+    language = Counter(languages).most_common(1)[0][0]
 
     if not silence:
-        print(f"Full Transcription:\n{full_text}")
+        print(f"Detected Language: {language}")
+        print(f"Full Transcription: {full_text}")
 
     # Delete tmp save dir
     os.system(f"rm -rf {save_dir}")
@@ -110,6 +116,7 @@ def main():
         save_file = os.path.splitext(urlparse(input_file).path)[0].split('/')[-1] + '.txt'
 
     with open(save_file, 'w') as f:
+        f.write(language + '\n')
         f.write(full_text + '\n')
 
     print(f"Full transcription of \"{input_file}\" from Qwen3-ASR-Flash API saved to \"{save_file}\"!")

@@ -107,7 +107,7 @@ def process_vad(wav: np.ndarray, worker_vad_model, segment_threshold_s: int = 12
         for i in range(len(new_split_points) - 1):
             start_sample = int(new_split_points[i])
             end_sample = int(new_split_points[i + 1])
-            segmented_wavs.append(wav[start_sample:end_sample])
+            segmented_wavs.append((start_sample, end_sample, wav[start_sample:end_sample]))
         return segmented_wavs
 
     except Exception as e:
@@ -119,7 +119,7 @@ def process_vad(wav: np.ndarray, worker_vad_model, segment_threshold_s: int = 12
             end_sample = min(start_sample + max_chunk_size_samples, total_samples)
             segment = wav[start_sample:end_sample]
             if len(segment) > 0:
-                segmented_wavs.append(segment)
+                segmented_wavs.append((start_sample, end_sample, segment))
 
         return segmented_wavs
 

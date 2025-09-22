@@ -12,6 +12,7 @@ An advanced, high-performance Python command-line toolkit for using the **Qwen-A
 -   **Smart Audio Splitting**: Utilizes **Voice Activity Detection (VAD)** to split audio into meaningful chunks at natural silent pauses. This ensures that words and sentences are not awkwardly cut off.
 -   **High-Speed Parallel Processing**: Leverages multi-threading to send audio chunks to the Qwen-ASR API concurrently, dramatically reducing the total transcription time for long files.
 -   **Intelligent Post-Processing**: Automatically detects and removes common ASR **hallucinations and repetitive artifacts** for cleaner, more accurate transcripts.
+-   **SRT Subtitle Generation**: Automatically create timestamped **`.srt` subtitle files** based on VAD segments, perfect for adding captions to video content.
 -   **Automatic Audio Resampling**: Automatically converts audio from any sample rate and channel count to the 16kHz mono format required by the Qwen-ASR API. You can use any audio file without worrying about pre-processing.
 -   **Universal Media Support**: Supports virtually any audio and video format (e.g., `.mp4`, `.mov`, `.mkv`, `.mp3`, `.wav`, `.m4a`) thanks to its reliance on FFmpeg.
 -   **Simple & Easy to Use**: A straightforward command-line interface allows you to get started with just a single command.
@@ -22,10 +23,10 @@ This tool follows a robust pipeline to deliver fast and accurate transcriptions 
 
 1.  **Media Loading**: The script first loads your media file, whether it's a **local file or a remote URL**.
 2.  **VAD-based Chunking**: It analyzes the audio stream using Voice Activity Detection (VAD) to identify silent segments.
-3.  **Intelligent Splitting**: The audio is then split into smaller chunks based on the detected silences. Each chunk is kept under the 3-minute API limit, preventing mid-sentence cuts.
+3.  **Intelligent Splitting**: The audio is then split into smaller chunks based on the detected silences. Each chunk's duration is managed to stay under the 3-minute API limit, with a **user-configurable target length (defaulting to 120 seconds)**, preventing mid-sentence cuts.
 4.  **Parallel API Calls**: A thread pool is initiated to upload and process these chunks concurrently using the DashScope Qwen-ASR API.
 5.  **Result Aggregation & Cleaning**: The transcribed text segments from all chunks are collected, re-ordered, and then **post-processed to remove detected repetitions and hallucinations**.
-6.  **Output Generation**: The final, cleaned transcription is printed to the console and saved to a text file.
+6.  **Output Generation**: The final, cleaned transcription is printed to the console and saved to a `.txt` file. **Optionally, a timestamped `.srt` subtitle file can also be generated.**
 
 ## 🏁 Getting Started
 
@@ -93,23 +94,27 @@ Once installed, you can use the `qwen3-asr` command directly from your terminal.
 ### Command
 
 ```bash
-qwen3-asr -i <input_file_or_url> [-key <api_key>] [-j <num_threads>] [-c <context>] [-t <tmp_dir>] [-s]
+qwen3-asr -i <input_file_or_url> [-key <api_key>] [-j <num_threads>] [-c <context>] [-d <duration>] [-t <tmp_dir>] [--save-srt] [-s]
 ```
 
 ### Arguments
 
-| Argument              | Short  | Description                                                                          | Required/Optional                        |
-| --------------------- | ------ | ------------------------------------------------------------------------------------ | ---------------------------------------- |
-| `--input-file`        | `-i`   | Path to the local media file or a remote URL (http/https) to transcribe.             | **Required**                             |
-| `--context`           | `-c`   | Text context to guide the ASR model, improving recognition of specific terms.        | Optional, Default: `""`                  |
-| `--dashscope-api-key` | `-key` | Your DashScope API Key.                                                              | Optional (if `DASHSCOPE_API_KEY` is set) |
-| `--num-threads`       | `-j`   | The number of concurrent threads to use for API calls.                               | Optional, **Default: 4**                 |
-| `--tmp-dir`           | `-t`   | Path to a directory for storing temporary chunk files.                               | Optional, Default: `~/qwen3-asr-cache`   |
-| `--silence`           | `-s`   | Silence mode. Suppresses detailed progress and chunking information on the terminal. | Optional                                 |
+| Argument                  | Short  | Description                                                                          | Required/Optional                        |
+| ------------------------- | ------ | ------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `--input-file`            | `-i`   | Path to the local media file or a remote URL (http/https) to transcribe.             | **Required**                             |
+| `--context`               | `-c`   | Text context to guide the ASR model, improving recognition of specific terms.        | Optional, Default: `""`                  |
+| `--dashscope-api-key`     | `-key` | Your DashScope API Key.                                                              | Optional (if `DASHSCOPE_API_KEY` is set) |
+| `--num-threads`           | `-j`   | The number of concurrent threads to use for API calls.                               | Optional, **Default: 4**                 |
+| `--vad-segment-threshold` | `-d`   | Target duration in seconds for each VAD-split audio chunk.                           | Optional, **Default: 120**               |
+| `--tmp-dir`               | `-t`   | Path to a directory for storing temporary chunk files.                               | Optional, Default: `~/qwen3-asr-cache`   |
+| `--save-srt`              | `-srt` | Generate and save a timestamped SRT subtitle file in addition to the `.txt` file.    | Optional                                 |
+| `--silence`               | `-s`   | Silence mode. Suppresses detailed progress and chunking information on the terminal. | Optional                                 |
 
 ### Output
 
 The full transcription result will be printed to the terminal (unless in `--silence` mode) and also saved in a `.txt` file in the same directory as the input file. For example, if you process `my_video.mp4`, the output will be saved to `my_video.txt`.
+
+**If you use the `--save-srt` flag, a corresponding `my_video.srt` subtitle file will also be created in the same directory.**
 
 ---
 
@@ -133,7 +138,16 @@ Directly process an audio file from a URL.
 qwen3-asr -i "https://somewebsite.com/audios/podcast_episode.mp3"
 ```
 
-#### 3. Increase Concurrency and Pass API Key
+#### 3. Generate an SRT Subtitle File
+
+Use the `--save-srt` (or `-srt`) flag to generate a timestamped subtitle file alongside the plain text transcript. This is ideal for video captioning.
+
+```bash
+qwen3-asr -i "/path/to/my/documentary.mp4" -srt
+```
+*This command will create `documentary.txt` and `documentary.srt`.*
+
+#### 4. Increase Concurrency and Pass API Key
 
 Transcribe a long audio file using 8 parallel threads and pass the API key directly via the command line.
 
@@ -141,17 +155,18 @@ Transcribe a long audio file using 8 parallel threads and pass the API key direc
 qwen3-asr -i "/path/to/my/podcast_episode_01.wav" -j 8 -key "your_api_key_here"
 ```
 
-#### 4. Provide Context to Improve Accuracy
+#### 5. Provide Context and Customize Chunk Duration
 
-If your audio contains specific jargon, names, or acronyms, use the `-c` flag to provide context, which helps the model recognize them correctly.
+If your audio contains specific jargon, use the `-c` flag. If you prefer shorter, more frequent subtitle segments, use `-d` to set a smaller chunk duration.
 
 ```bash
-qwen3-asr -i "/path/to/my/tech_talk.mp4" -c "Qwen-ASR, DashScope, FFmpeg, VAD"
+qwen3-asr -i "/path/to/my/tech_talk.mp4" -c "Qwen-ASR, DashScope, FFmpeg" -d 60 -srt
 ```
+*This command will try to split the audio into chunks around 60 seconds long, which can result in more granular subtitles.*
 
-#### 5. Run in Silence Mode
+#### 6. Run in Silence Mode
 
-Use the `-s` or `--silence` flag to prevent progress details from being printed to the terminal. The final transcript will still be saved to a `.txt` file.
+Use the `-s` or `--silence` flag to prevent progress details from being printed to the terminal. The final transcript will still be saved to a file.
 
 ```bash
 qwen3-asr -i "/path/to/my/meeting_recording.m4a" -s

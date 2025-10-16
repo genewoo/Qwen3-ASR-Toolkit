@@ -28,6 +28,23 @@ This tool follows a robust pipeline to deliver fast and accurate transcriptions 
 5.  **Result Aggregation & Cleaning**: The transcribed text segments from all chunks are collected, re-ordered, and then **post-processed to remove detected repetitions and hallucinations**.
 6.  **Output Generation**: The final, cleaned transcription is printed to the console and saved to a `.txt` file. **Optionally, a timestamped `.srt` subtitle file can also be generated.**
 
+### 🔍 Voice Activity Detection in Detail
+
+The toolkit performs VAD locally so that long recordings can be segmented before they are sent to the DashScope API. The implementation in `qwen3_asr_toolkit/audio_tools.py` and `qwen3_asr_toolkit/call_api.py` follows these steps:
+
+#### What is the Silero VAD model?
+
+The project depends on the lightweight **Silero Voice Activity Detector**, a small TorchScript model released by the Silero/Snakers4 team for offline speech boundary detection. It is bundled through the [`silero-vad` Python package](https://pypi.org/project/silero-vad/) and is loaded locally via `silero_vad.get_speech_timestamps`, which returns sample-level start and end indices for every region that likely contains human speech.【F:qwen3_asr_toolkit/audio_tools.py†L1-L73】 Because the model runs entirely on the client, no extra API calls are required—only the already-downloaded parameters are used during segmentation.【F:qwen3_asr_toolkit/call_api.py†L62-L110】
+
+1.  **Model Preparation**: When the CLI receives an input longer than three minutes, it loads the Silero VAD model in the worker process and keeps it in memory for reuse across segments.【F:qwen3_asr_toolkit/call_api.py†L62-L86】
+2.  **Speech Timestamp Detection**: `process_vad` runs `get_speech_timestamps` on the mono, 16 kHz waveform to identify the start and end sample of each speech region. Detection parameters enforce a minimum speech duration of 1.5 seconds and a minimum silence duration of 0.5 seconds to avoid choppy splits.【F:qwen3_asr_toolkit/audio_tools.py†L47-L71】
+3.  **Target-Length Splitting**: The function seeds candidate split points with detected boundaries, then walks forward in steps of the user-defined `segment_threshold_s` (default 120 seconds), snapping each desired boundary to the closest speech-aligned point. This keeps chunks near the target duration while respecting speech pauses.【F:qwen3_asr_toolkit/audio_tools.py†L71-L89】
+4.  **Maximum-Length Enforcement**: After the initial pass, any chunk longer than `max_segment_threshold_s` (default 180 seconds) is subdivided evenly to ensure that no segment exceeds the API’s limit even when long speech spans lack silence.【F:qwen3_asr_toolkit/audio_tools.py†L91-L110】
+5.  **Chunk Assembly**: The resulting split points are converted into `(start_sample, end_sample, wav_slice)` tuples, which the CLI serializes to temporary files before uploading them in parallel. Timestamps are later reused for subtitle generation.【F:qwen3_asr_toolkit/audio_tools.py†L111-L116】【F:qwen3_asr_toolkit/call_api.py†L86-L140】
+6.  **Robust Fallback**: If Silero VAD fails (e.g., due to model errors or truly silent audio), the code falls back to deterministic chunking that simply slices the waveform into consecutive `max_segment_threshold_s` windows, guaranteeing progress without remote retries.【F:qwen3_asr_toolkit/audio_tools.py†L118-L136】
+
+Because all of these steps execute locally, no raw audio beyond the short VAD-derived segments is sent to the API until after chunking is complete.
+
 ## 🏁 Getting Started
 
 Follow these steps to set up and run the project on your local machine.
